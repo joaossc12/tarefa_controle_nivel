@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
+#include "lib/rele.h"
 #define RELE_PIN 18
 
 //Trecho para modo BOOTSEL com botão B
@@ -46,20 +47,11 @@ int main()
     gpio_set_irq_enabled(botaoA, GPIO_IRQ_EDGE_FALL, true);
     //Aqui termina o trecho para modo BOOTSEL com botão B
 
-    // Inicializa o pino do relé
-    gpio_init(RELE_PIN);
-    gpio_set_dir(RELE_PIN, GPIO_OUT); // Define o pino como saída
-    gpio_put(RELE_PIN, 1); // Garante que o relé comece desligado 
+    rele_init(RELE_PIN);
 
     printf("CÓDIGO INICIADO!\n");
     while (true) {
-        if (!flag){
-            gpio_put(RELE_PIN,1);
-            printf("RELE OFF!FLAG: %d\n", flag);
-        }else{
-            gpio_put(RELE_PIN,0);
-            printf("RELE ON!FLAG: %d\n", flag);
-        }
+        switch_rele(RELE_PIN, flag);
         
         sleep_ms(1000);
     }
