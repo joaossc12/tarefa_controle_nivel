@@ -35,7 +35,10 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(tareja_controle_nivel tareja_controle_nivel.c lib/rele.c lib/ssd1306.c)
+add_executable(tareja_controle_nivel tareja_controle_nivel.c 
+                                    lib/rele.c 
+                                    lib/ssd1306.c
+                                    lib/sensor.c)
 
 pico_set_program_name(tareja_controle_nivel "tareja_controle_nivel")
 pico_set_program_version(tareja_controle_nivel "0.1")
@@ -47,6 +50,7 @@ pico_enable_stdio_usb(tareja_controle_nivel 1)
 # Add the standard library to the build
 target_link_libraries(tareja_controle_nivel
         pico_stdlib
+        hardware_adc
         hardware_i2c)
 
 # Add the standard include files to the build

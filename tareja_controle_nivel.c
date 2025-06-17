@@ -1,14 +1,24 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "hardware/adc.h"
+#include "hardware/i2c.h"
 
 #include "lib/rele.h"
 #define RELE_PIN 18
+
+#include "lib/sensor.h"
+#define POTENCIOMETRO_PIN 28
+#define LIMITE_MIN 2150
+#define LIMITE_MAX 2500
+
+
 
 //Trecho para modo BOOTSEL com botão B
 #include "pico/bootrom.h"
 #define botaoB 6
 #define botaoA 5
 
+float nivel = 0;
 
 volatile bool flag = false;
 
@@ -47,12 +57,28 @@ int main()
     gpio_set_irq_enabled(botaoA, GPIO_IRQ_EDGE_FALL, true);
     //Aqui termina o trecho para modo BOOTSEL com botão B
 
-    rele_init(RELE_PIN);
+    //Inicializa o ADC
+    adc_init();
+    adc_gpio_init(POTENCIOMETRO_PIN);
 
+
+    //rele_init(RELE_PIN);
+
+
+    float nvl = 0;
     printf("CÓDIGO INICIADO!\n");
     while (true) {
-        switch_rele(RELE_PIN, flag);
+        float soma = 0;
+        adc_select_input(2);
+        for (int i =0; i <500; i++){
+            soma += (float)adc_read();
+        }
+        nivel = soma/500.0f;
         
+        
+        printf("Nivel: %f\n", nivel);
+        //switch_rele(RELE_PIN, flag);
+        printf("START LOOP\n");   
         sleep_ms(1000);
     }
 }
