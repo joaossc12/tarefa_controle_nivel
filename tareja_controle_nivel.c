@@ -1,16 +1,26 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "hardware/i2c.h"
 
 #include "lib/rele.h"
 #define RELE_PIN 18
 
+#include "lib/sensor.h"
+#define SENSOR_PIN 28
+#define SENSOR_MIN 2330.0
+#define SENSOR_MAX 2635.0
+
+
+uint limite_max = 80;
+uint limite_min = 20;
 //Trecho para modo BOOTSEL com botão B
 #include "pico/bootrom.h"
 #define botaoB 6
 #define botaoA 5
 
 
-volatile bool flag = false;
+volatile bool flag_switch = false;
+
 
 void gpio_irq_handler(uint gpio, uint32_t events)
 {
@@ -19,10 +29,9 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     absolute_time_t now = get_absolute_time();
     if (gpio == botaoA){
         if (absolute_time_diff_us(last_time_A, now) > 200000) { //Debouncing
-            flag = !flag;
+            flag_switch = !flag_switch;
             last_time_A = now;
         }
-
     }else if (gpio == botaoB){
         if (absolute_time_diff_us(last_time_B, now) > 200000) { //Debouncing
             reset_usb_boot(0,0);
@@ -47,12 +56,19 @@ int main()
     gpio_set_irq_enabled(botaoA, GPIO_IRQ_EDGE_FALL, true);
     //Aqui termina o trecho para modo BOOTSEL com botão B
 
+    //Inicializa o sensor
+    sensor_init(SENSOR_PIN);
+
+    //Inicializa o relé
     rele_init(RELE_PIN);
 
     printf("CÓDIGO INICIADO!\n");
+
     while (true) {
-        switch_rele(RELE_PIN, flag);
-        
-        sleep_ms(1000);
+        //float nivel = get_nivel(SENSOR_PIN, SENSOR_MAX, SENSOR_MIN);
+        calibra_sensor(SENSOR_PIN);
+        switch_rele(RELE_PIN, flag_switch);
+        sleep_ms(500);
+
     }
 }
