@@ -65,10 +65,27 @@ int main()
     printf("CÓDIGO INICIADO!\n");
 
     while (true) {
-        //float nivel = get_nivel(SENSOR_PIN, SENSOR_MAX, SENSOR_MIN);
-        calibra_sensor(SENSOR_PIN);
-        switch_rele(RELE_PIN, flag_switch);
-        sleep_ms(500);
+        float nivel = get_nivel(SENSOR_PIN, SENSOR_MAX, SENSOR_MIN);
+        printf("Nível: %.2f%%\n", nivel);
 
+        if (nivel >= limite_max) {
+            // Desliga o relé porque atingiu o máximo
+            flag_switch = false;
+            switch_rele(RELE_PIN, false);
+            printf("Desligando bomba: nível acima do limite máximo\n");
+        }
+        else if (nivel <= limite_min) {
+            // Liga automaticamente porque atingiu o mínimo
+            flag_switch = true;
+            switch_rele(RELE_PIN, true);
+            printf("Ligando bomba: nível abaixo do limite mínimo\n");
+        }
+        else {
+            // Entre os limites, respeita o botão
+            switch_rele(RELE_PIN, flag_switch);
+            printf("Controle manual: %s\n", flag_switch ? "ligado" : "desligado");
+        }
+
+        sleep_ms(100);
     }
 }
