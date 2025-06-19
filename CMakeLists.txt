@@ -51,7 +51,10 @@ pico_enable_stdio_usb(tareja_controle_nivel 1)
 target_link_libraries(tareja_controle_nivel
         pico_stdlib
         hardware_adc
-        hardware_i2c)
+        hardware_i2c
+        pico_stdlib     
+        pico_cyw43_arch_lwip_threadsafe_background
+        )
 
 # Add the standard include files to the build
 target_include_directories(tareja_controle_nivel PRIVATE
