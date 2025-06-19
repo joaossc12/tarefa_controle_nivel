@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
+
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
 if(WIN32)
     set(USERHOME $ENV{USERPROFILE})
@@ -38,7 +39,8 @@ pico_sdk_init()
 add_executable(tareja_controle_nivel tareja_controle_nivel.c 
                                     lib/rele.c 
                                     lib/ssd1306.c
-                                    lib/sensor.c)
+                                    lib/sensor.c
+                                    lib/ws2812b.c)
 
 pico_set_program_name(tareja_controle_nivel "tareja_controle_nivel")
 pico_set_program_version(tareja_controle_nivel "0.1")
@@ -51,7 +53,9 @@ pico_enable_stdio_usb(tareja_controle_nivel 1)
 target_link_libraries(tareja_controle_nivel
         pico_stdlib
         hardware_adc
-        hardware_i2c)
+        hardware_i2c
+        hardware_pio
+        hardware_pwm)
 
 # Add the standard include files to the build
 target_include_directories(tareja_controle_nivel PRIVATE
@@ -63,6 +67,8 @@ target_include_directories(tareja_controle_nivel PRIVATE
 target_link_libraries(tareja_controle_nivel 
         
         )
+
+pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/ws2812b.pio)
 
 pico_add_extra_outputs(tareja_controle_nivel)
 
