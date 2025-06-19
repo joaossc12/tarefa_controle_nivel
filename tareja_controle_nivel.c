@@ -84,8 +84,10 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     hs->sent = 0;
 
     if (strstr(req, "GET /estado")) {
-        adc_select_input(0);
-        uint16_t leitura = adc_to_percentage(adc_read()); // nível da água
+        // adc_select_input(0);
+        // uint16_t leitura = adc_to_percentage(adc_read()); // nível da água
+
+        uint32_t leitura = (uint32_t)get_nivel(SENSOR_PIN, limite_max, limite_min);
 
         char json_payload[128];
         int json_len = snprintf(json_payload, sizeof(json_payload),
@@ -200,10 +202,12 @@ void gpio_irq_handler(uint gpio, uint32_t events)
 
 int main()
 {
+    //Configuração para modo bootsel
     gpio_init(BOTAO_B);
     gpio_set_dir(BOTAO_B, GPIO_IN);
     gpio_pull_up(BOTAO_B);
     gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    //Fim do trecho para modo bootsel
 
     stdio_init_all();
     sleep_ms(2000);
@@ -219,9 +223,15 @@ int main()
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
     gpio_pull_up(BOTAO_JOY);
 
-    adc_init();
-    adc_gpio_init(JOYSTICK_X);
-    adc_gpio_init(JOYSTICK_Y);
+    // adc_init();
+    // adc_gpio_init(JOYSTICK_X);
+    // adc_gpio_init(JOYSTICK_Y);
+
+    //Inicializa o Potenciometro
+    sensor_init(SENSOR_PIN);
+
+    //Inicializa o Rele
+    rele_init(RELE_PIN);
 
     i2c_init(I2C_PORT_DISP, 400 * 1000);
     gpio_set_function(I2C_SDA_DISP, GPIO_FUNC_I2C);
@@ -264,29 +274,35 @@ int main()
     ssd1306_send_data(&ssd);
 
     start_http_server();
-    char str_x[5]; // Buffer para armazenar a string
-    char str_y[5]; // Buffer para armazenar a string
+    // char str_x[5]; // Buffer para armazenar a string
+    // char str_y[5]; // Buffer para armazenar a string
     bool cor = true;
     while (true)
     {
         cyw43_arch_poll();
 
-        // Leitura dos valores analógicos
-        adc_select_input(0);
-        uint16_t adc_value_x = adc_read();
-        uint16_t leitura = adc_to_percentage(adc_value_x); // Converte o valor para porcentagem
+        // // Leitura dos valores analógicos
+        // adc_select_input(0);
+        // uint16_t adc_value_x = adc_read();
+        // uint16_t leitura = adc_to_percentage(adc_value_x); // Converte o valor para porcentagem
 
-        adc_select_input(1);
-        uint16_t adc_value_y = adc_read();
+        // adc_select_input(1);
+        // uint16_t adc_value_y = adc_read();
 
-        if (leitura > limite_max) {
-            pump_state = false; // Liga a bomba se o nível estiver acima do máximo
-        } else if (leitura < limite_min) {
+        float nivel = get_nivel(SENSOR_PIN, limite_max, limite_min);
+
+        if (nivel > limite_max) {
+            pump_state = false; // Liga a bomba se o nível estiver acima do máximo 
+            flag_switch = false;
+        } else if (nivel < limite_min) {
             pump_state = true; // Desliga a bomba se o nível estiver abaixo do mínimo
+            flag_switch = true;
         }
 
-        sprintf(str_x, "%d", adc_value_x);            // Converte o inteiro em string
-        sprintf(str_y, "%d", adc_value_y);            // Converte o inteiro em string
+        switch_rele(RELE_PIN, flag_switch);
+
+        // sprintf(str_x, "%d", adc_value_x);            // Converte o inteiro em string
+        // sprintf(str_y, "%d", adc_value_y);            // Converte o inteiro em string
         ssd1306_fill(&ssd, !cor);                     // Limpa o display
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor); // Desenha um retângulo
         ssd1306_line(&ssd, 3, 25, 123, 25, cor);      // Desenha uma linha
@@ -297,9 +313,9 @@ int main()
         ssd1306_draw_string(&ssd, ip_str, 10, 28);
         ssd1306_draw_string(&ssd, "X    Y    PB", 20, 41);           // Desenha uma string
         ssd1306_line(&ssd, 44, 37, 44, 60, cor);                     // Desenha uma linha vertical
-        ssd1306_draw_string(&ssd, str_x, 8, 52);                     // Desenha uma string
+        // ssd1306_draw_string(&ssd, str_x, 8, 52);                     // Desenha uma string
         ssd1306_line(&ssd, 84, 37, 84, 60, cor);                     // Desenha uma linha vertical
-        ssd1306_draw_string(&ssd, str_y, 49, 52);                    // Desenha uma string
+        // ssd1306_draw_string(&ssd, str_y, 49, 52);                    // Desenha uma string
         ssd1306_rect(&ssd, 52, 90, 8, 8, cor, !gpio_get(BOTAO_JOY)); // Desenha um retângulo
         ssd1306_rect(&ssd, 52, 102, 8, 8, cor, !gpio_get(BOTAO_A));  // Desenha um retângulo
         ssd1306_rect(&ssd, 52, 114, 8, 8, cor, !cor);                // Desenha um retângulo
