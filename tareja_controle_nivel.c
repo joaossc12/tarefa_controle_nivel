@@ -196,8 +196,10 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     hs->sent = 0;
 
     if (strstr(req, "GET /estado")) {
-        adc_select_input(0);
-        uint16_t leitura = adc_to_percentage(adc_read()); // nível da água
+        // adc_select_input(0);
+        // uint16_t leitura = adc_to_percentage(adc_read()); // nível da água
+
+        uint32_t leitura = (uint32_t)get_nivel(SENSOR_PIN, limite_max, limite_min);
 
         char json_payload[128];
         int json_len = snprintf(json_payload, sizeof(json_payload),
@@ -320,8 +322,14 @@ int main()
     gpio_set_dir(BOTAO_JOY, GPIO_IN);
     gpio_pull_up(BOTAO_JOY);
     gpio_set_irq_enabled_with_callback(BOTAO_JOY, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-
     //Aqui termina o trecho para modo BOOTSEL com botão B
+
+    //Configuração para modo bootsel
+    gpio_init(BOTAO_B);
+    gpio_set_dir(BOTAO_B, GPIO_IN);
+    gpio_pull_up(BOTAO_B);
+    gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    //Fim do trecho para modo bootsel
 
     stdio_init_all();
     sleep_ms(2000);
@@ -338,6 +346,16 @@ int main()
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true);
     gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true);
     // --------------------------
+    
+    // adc_init();
+    // adc_gpio_init(JOYSTICK_X);
+    // adc_gpio_init(JOYSTICK_Y);
+
+    //Inicializa o Potenciometro
+    sensor_init(SENSOR_PIN);
+
+    //Inicializa o Rele
+    rele_init(RELE_PIN);
 
     // Inicializa LED verde
     gpio_init(LED_GREEN_PIN);
@@ -424,11 +442,13 @@ int main()
         // calibra_sensor(SENSOR_PIN);
         adc = read_sensor(RELE_PIN);
         nivel = (float)(adc - SENSOR_MIN)/ (SENSOR_MAX - SENSOR_MIN) * 100;
-        
-        if (leitura > limite_max) {
-            pump_state = false; // Liga a bomba se o nível estiver acima do máximo
-        } else if (leitura < limite_min) {
+
+        if (nivel > limite_max) {
+            pump_state = false; // Liga a bomba se o nível estiver acima do máximo 
+            flag_switch = false;
+        } else if (nivel < limite_min) {
             pump_state = true; // Desliga a bomba se o nível estiver abaixo do mínimo
+            flag_switch = true;
         }
         switch_rele(RELE_PIN, pump_state);
 

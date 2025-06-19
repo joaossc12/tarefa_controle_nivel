@@ -8,10 +8,5 @@ void rele_init(uint pin){
 }
 
 void switch_rele(uint pin, bool state){
-    if(state){
-        gpio_put(pin, 0); //GPIO em 0 relé ligado
-    }else{
-        gpio_put(pin, 1); //GPIO em 1 relé desligado
-    }
-
+    gpio_put(pin, !state);
 }
