@@ -55,7 +55,10 @@ target_link_libraries(tareja_controle_nivel
         hardware_adc
         hardware_i2c
         hardware_pio
-        hardware_pwm)
+        hardware_pwm
+        pico_stdlib     
+        pico_cyw43_arch_lwip_threadsafe_background
+        )
 
 # Add the standard include files to the build
 target_include_directories(tareja_controle_nivel PRIVATE

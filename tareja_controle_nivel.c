@@ -1,12 +1,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
+#include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
+#include "lwip/tcp.h"
 #include "hardware/i2c.h"
 #include "hardware/adc.h"
 #include "hardware/timer.h"
 #include "hardware/pwm.h"
+#include "hardware/gpio.h"
+
+#include "lib/html.h"
+
+#define BOTAO_A 5
+#define BOTAO_B 6
+#define BOTAO_JOY 22
+
+#define WIFI_SSID "NOME_WIFI"
+#define WIFI_PASS "SENHA_WIFI"
+
+#define I2C_PORT_DISP i2c1
+#define I2C_SDA_DISP 14
+#define I2C_SCL_DISP 15
+#define endereco 0x3C
 
 #include "lib/rele.h"
 #define RELE_PIN 18
@@ -37,15 +55,11 @@ static float limite_max = 80.0f;
 static float limite_min = 20.0f;
 #define TOLERANCIA 8 // Diferença aceita para ultrapassar os limites
 
-//Trecho para modo BOOTSEL com botão B
-#include "pico/bootrom.h"
-#define botaoB 6
-#define botaoA 5
-
 volatile static bool setup = true;
 volatile static bool flag_switch = false;
 volatile static bool flag_atualizar = true;
 volatile static uint8_t status_nivel = 0;
+volatile static bool pump_state = false; // Estado da bomba
 
 const static Rgb std_color = {0, 0, 1};
 const static Rgb alarme_color = {1, 0, 0};
@@ -145,7 +159,141 @@ bool buzzer_callback(struct repeating_timer *t)
     buzzer_on = !buzzer_on;
 
     return true;
+
+struct http_state
+{
+    char response[4096];
+    size_t len;
+    size_t sent;
+};
+
+static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
+{
+    struct http_state *hs = (struct http_state *)arg;
+    hs->sent += len;
+    if (hs->sent >= hs->len)
+    {
+        tcp_close(tpcb);
+        free(hs);
+    }
+    return ERR_OK;
 }
+
+static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
+{
+    if (!p) {
+        tcp_close(tpcb);
+        return ERR_OK;
+    }
+
+    char *req = (char *)p->payload;
+    struct http_state *hs = malloc(sizeof(struct http_state));
+    if (!hs) {
+        pbuf_free(p);
+        tcp_close(tpcb);
+        return ERR_MEM;
+    }
+    hs->sent = 0;
+
+    if (strstr(req, "GET /estado")) {
+        adc_select_input(0);
+        uint16_t leitura = adc_to_percentage(adc_read()); // nível da água
+
+        char json_payload[128];
+        int json_len = snprintf(json_payload, sizeof(json_payload),
+            "{\"level\":%d,\"pump\":%d,\"min\":%d,\"max\":%d}",
+            leitura, pump_state, limite_min, limite_max);
+
+        hs->len = snprintf(hs->response, sizeof(hs->response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "%s", json_len, json_payload);
+    }
+    else if (strstr(req, "GET /config?")) {
+        // extrai os parâmetros min e max da query string
+        char *min_str = strstr(req, "min=");
+        char *max_str = strstr(req, "max=");
+
+        if (min_str && max_str) {
+            limite_min = atoi(min_str + 4);
+            limite_max = atoi(max_str + 4);
+
+            if (limite_max < limite_min) {
+                limite_max = limite_min + 1;
+            }
+
+            char json_config[64];
+            int len = snprintf(json_config, sizeof(json_config),
+                "{\"min\":%d,\"max\":%d}", limite_min, limite_max);
+
+            hs->len = snprintf(hs->response, sizeof(hs->response),
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Content-Length: %d\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "%s", len, json_config);
+        } else {
+            const char *erro = "Parametros invalidos";
+            hs->len = snprintf(hs->response, sizeof(hs->response),
+                "HTTP/1.1 400 Bad Request\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: %d\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "%s", (int)strlen(erro), erro);
+        }
+    }
+    else {
+        hs->len = snprintf(hs->response, sizeof(hs->response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "%s", (int)strlen(HTML_BODY), HTML_BODY);
+    }
+
+    tcp_arg(tpcb, hs);
+    tcp_sent(tpcb, http_sent);
+
+    tcp_write(tpcb, hs->response, hs->len, TCP_WRITE_FLAG_COPY);
+    tcp_output(tpcb);
+
+    pbuf_free(p);
+    return ERR_OK;
+}
+
+
+static err_t connection_callback(void *arg, struct tcp_pcb *newpcb, err_t err)
+{
+    tcp_recv(newpcb, http_recv);
+    return ERR_OK;
+}
+
+static void start_http_server(void)
+{
+    struct tcp_pcb *pcb = tcp_new();
+    if (!pcb)
+    {
+        printf("Erro ao criar PCB TCP\n");
+        return;
+    }
+    if (tcp_bind(pcb, IP_ADDR_ANY, 80) != ERR_OK)
+    {
+        printf("Erro ao ligar o servidor na porta 80\n");
+        return;
+    }
+    pcb = tcp_listen(pcb);
+    tcp_accept(pcb, connection_callback);
+    printf("Servidor HTTP rodando na porta 80...\n");
+}
+
+//Trecho para modo BOOTSEL com botão Joystick
+#include "pico/bootrom.h"
 
 void gpio_irq_handler(uint gpio, uint32_t events)
 {
@@ -166,26 +314,36 @@ void gpio_irq_handler(uint gpio, uint32_t events)
 }
 
 int main()
-{
-    stdio_init_all();
+{   
+     // Para ser utilizado o modo BOOTSEL com botão B
+    gpio_init(BOTAO_JOY);
+    gpio_set_dir(BOTAO_JOY, GPIO_IN);
+    gpio_pull_up(BOTAO_JOY);
+    gpio_set_irq_enabled_with_callback(BOTAO_JOY, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
 
-    // Para ser utilizado o modo BOOTSEL com botão B
-    gpio_init(botaoB);
-    gpio_set_dir(botaoB, GPIO_IN);
-    gpio_pull_up(botaoB);
-    gpio_init(botaoA);
-    gpio_set_dir(botaoA, GPIO_IN);
-    gpio_pull_up(botaoA);
-    gpio_set_irq_enabled_with_callback(botaoB, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-    gpio_set_irq_enabled(botaoA, GPIO_IRQ_EDGE_FALL, true);
     //Aqui termina o trecho para modo BOOTSEL com botão B
+
+    stdio_init_all();
+    sleep_ms(2000);
+
+    // Inicializa os botões A e B
+    gpio_init(BOTAO_A);
+    gpio_set_dir(BOTAO_A, GPIO_IN);
+    gpio_pull_up(BOTAO_A);
+
+    gpio_init(BOTAO_B);
+    gpio_set_dir(BOTAO_B, GPIO_IN);
+    gpio_pull_up(BOTAO_B);
+
+    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled_with_callback(BOTAO_B, GPIO_IRQ_EDGE_FALL, true);
+    // --------------------------
 
     // Inicializa LED verde
     gpio_init(LED_GREEN_PIN);
     gpio_set_dir(LED_GREEN_PIN, GPIO_OUT);
     gpio_put(LED_GREEN_PIN, 0); // Começa desligado
     bool led_on = false;
-
 
     // Inicializa a Matriz
     matriz_init();
@@ -213,15 +371,44 @@ int main()
     // ------------------------
 
     // Inicializa o Buzzer
-        // Obter slice e definir pino como PWM
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
     slice = pwm_gpio_to_slice_num(BUZZER_PIN);
 
-    // Configurar frequência
     pwm_set_wrap(slice, WRAP);
     pwm_set_clkdiv(slice, DIV_CLK); 
     pwm_set_gpio_level(BUZZER_PIN, 0);
     pwm_set_enabled(slice, true);
+    // ---------------------
+
+    // Inicializa o Wi-Fi e o servidor web
+    if (cyw43_arch_init())
+    {
+        ssd1306_fill(&ssd, false);
+        ssd1306_draw_string(&ssd, "WiFi => FALHA", 0, 0);
+        ssd1306_send_data(&ssd);
+        return 1;
+    }
+
+    cyw43_arch_enable_sta_mode();
+    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 10000))
+    {
+        ssd1306_fill(&ssd, false);
+        ssd1306_draw_string(&ssd, "WiFi => ERRO", 0, 0);
+        ssd1306_send_data(&ssd);
+        return 1;
+    }
+
+    uint8_t *ip = (uint8_t *)&(cyw43_state.netif[0].ip_addr.addr);
+    char ip_str[24];
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+
+    ssd1306_fill(&ssd, false);
+    ssd1306_draw_string(&ssd, "WiFi => OK", 0, 0);
+    ssd1306_draw_string(&ssd, ip_str, 0, 10);
+    ssd1306_send_data(&ssd);
+
+    start_http_server();
+    // ------------------------------------------
 
     float adc;
     float nivel;
@@ -230,15 +417,23 @@ int main()
     printf("CÓDIGO INICIADO!\n");
 
     while (true) {
+        // Polling para manter conexão
+        cyw43_arch_poll();
+
         // nivel = get_nivel(SENSOR_PIN, SENSOR_MAX, SENSOR_MIN);
         // calibra_sensor(SENSOR_PIN);
-
         adc = read_sensor(RELE_PIN);
         nivel = (float)(adc - SENSOR_MIN)/ (SENSOR_MAX - SENSOR_MIN) * 100;
-        switch_rele(RELE_PIN, flag_switch);
+        
+        if (leitura > limite_max) {
+            pump_state = false; // Liga a bomba se o nível estiver acima do máximo
+        } else if (leitura < limite_min) {
+            pump_state = true; // Desliga a bomba se o nível estiver abaixo do mínimo
+        }
+        switch_rele(RELE_PIN, pump_state);
 
         led_on = gpio_get(LED_GREEN_PIN);
-        if (flag_switch)
+        if (pump_state)
         {   
             if (!led_on)
             {
@@ -288,4 +483,7 @@ int main()
 
         sleep_ms(500);
     }
+
+    cyw43_arch_deinit();
+    return 0;
 }
