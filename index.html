@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <title>Sistema de Controle de Nível de Água</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 10px; margin: 0; background: #f9f9f9; }
+    .botao { font-size: 18px; padding: 8px 20px; margin: 5px; border: none; border-radius: 8px; cursor: pointer; background: #dbdbdb ; }
+    .campo-config { margin: 10px 0; }
+    .campo-config input { width: 60px; padding: 4px; font-size: 16px; }
+    .label { font-weight: bold; margin-bottom: 5px; display: block; }
+    .barra { width: 50%; background: #ddd; border-radius: 6px; overflow: hidden; margin: 0 auto 15px auto; height: 25px; }
+    .preenchimento { height: 100%; transition: width 0.3s ease; background: #2196F3; }
+    @media (max-width: 600px) {
+      .barra { width: 80%; }
+      .botao, .campo-config input { width: 80%; }
+    }
+  </style>
+  <script>
+    function updateLimits() {
+      const min = document.getElementById('input-min').value;
+      const max = document.getElementById('input-max').value;
+      fetch(`/config?min=${min}&max=${max}`)
+        .then(res => {
+          if (!res.ok) alert('Falha ao atualizar limites!');
+          return res.json();
+        })
+        .then(data => {
+          document.getElementById('limite-min').innerText = data.min;
+          document.getElementById('limite-max').innerText = data.max;
+        })
+        .catch(err => console.error(err));
+    }
+
+    function atualizar() {
+      fetch('/estado')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('nivel-valor').innerText = data.level;
+          const pct = Math.min(100, Math.max(0, Math.round(data.level / data.max * 100)));
+          document.querySelector('.preenchimento').style.width = pct + '%';
+          const pumpEl = document.getElementById('pump-state');
+          pumpEl.innerText = data.pump ? 'Ligada' : 'Desligada';
+          pumpEl.className = data.pump ? 'on' : 'off';
+          document.getElementById('limite-min').innerText = data.min;
+          document.getElementById('limite-max').innerText = data.max;
+        })
+        .catch(err => console.error(err));
+    }
+    setInterval(atualizar, 1000);
+    window.onload = atualizar;
+  </script>
+</head>
+<body>
+  <h1>Sistema de Controle de Nível de Água</h1>
+  <p class='label'>Nível Atual: <span id='nivel-valor'>--</span></p>
+  <div class='barra'><div class='preenchimento'></div></div>
+  <p class='label'>Bomba: <span id='pump-state'>--</span></p>
+  <hr style='margin: 20px 0;'>
+  <div class='campo-config'>
+    <label class='label'>Limite Mínimo Atual: <span id='limite-min'>--</span></label>
+    Novo limite: <input type='number' id='input-min' min='0' max='100' step='1'>
+  </div>
+  <div class='campo-config'>
+    <label class='label'>Limite Máximo Atual: <span id='limite-max'>--</span></label>
+    Novo limite: <input type='number' id='input-max' min='1' max='100' step='1'>
+  </div>
+  <button class='botao' onclick='updateLimits()'>Atualizar Limites</button>
+  <p style='font-size: 14px; color: #666; margin-top: 30px;'>
+    Sistema de controle de nível - EmbarcaTech
+  </p>
+</body>
+</html>
