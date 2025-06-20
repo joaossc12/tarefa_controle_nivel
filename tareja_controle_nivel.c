@@ -18,7 +18,7 @@
 #include "lib/ws2812b.h"
 
 #define ADC_RESOLUTION 4095
-const uint joystick_y_pin = 26;
+const static uint joystick_y_pin = 26;
 
 uint limite_max = 80;
 uint limite_min = 20;
@@ -29,16 +29,36 @@ uint limite_min = 20;
 #define botaoB 6
 #define botaoA 5
 
-bool setup = true;
-volatile bool flag_switch = false;
-volatile bool flag_matriz = true;
+volatile static bool setup = true;
+volatile static bool flag_switch = false;
+volatile static bool flag_matriz = true;
+
+const static Rgb std_color = {0, 0, 1};
+const static Rgb alarme_color = {1, 0, 0};
+volatile static bool alarme_on = false;
 
 bool is_same_color(Rgb color1, Rgb color2)
 {
     return color1.r == color2.r && color1.g == color2.g && color1.b == color2.b;
 }
 
-void matriz_show_lvl(float leitura_porc)
+int checar_estado_nivel(float leitura)
+{
+    if (leitura - limite_max >= TOLERANCIA)
+    {
+        return 1; // Risco de transbordamento
+    }
+    else if (limite_min - leitura >= TOLERANCIA)
+    {
+        return -1; // Nível abaixo do esperado
+    }
+    else
+    {
+        return 0; // Nível OK
+    }
+}
+
+void matriz_show_lvl(float leitura)
 {
     static uint8_t prev_lines = 0;
     static Rgb prev_matriz_color = {0, 0, 1};
@@ -47,39 +67,18 @@ void matriz_show_lvl(float leitura_porc)
     uint8_t min_lines = limite_min > 0 ? 1 : 0;
     uint8_t lines = min_lines;
 
-    Rgb matriz_color;
+    // Limitar leitura ao intervalo
+    leitura = fmaxf(limite_min, fminf(leitura, limite_max));
+   
+    // Mapeia o valor lido para o total de linhas adicionais na matriz
+    uint8_t lines_bruto = ((leitura - limite_min) / (limite_max - limite_min)) * (MATRIZ_ROWS - min_lines);
+    lines += round(lines_bruto); // Arredonda valor obtido
 
-    // Limitar valor lido pelos limites máximo e mínimo
-    if (leitura_porc > limite_max)
-    {   
-        lines = MATRIZ_ROWS; // Matriz deve exibir o maior valor possível
-
-        // Indicar risco de transbordamento se a diferença ultrapassar a tolerância
-        if (leitura_porc - limite_max >= TOLERANCIA)
-        {
-            matriz_color = {1, 0, 0};
-        }
-    }
-    else if (leitura_porc < limite_min)
-    {   
-        lines = min_lines; // Matriz deve exibir o menor valor possível
-
-        // Indicar que nível de água abaixo do ideal se a diferença ultrapassar a tolerância
-        if (limite_min - leitura_porc >= TOLERANCIA)
-        {
-            matriz_color = {1, 0, 0};
-        }
-    else
-    {
-        // Mapeia o valor lido para o total de linhas adicionais na matriz
-        uint8_t lines_bruto = ((leitura_porc - limite_min) / (limite_max - limite_min)) * (MATRIZ_ROWS - min_lines);
-        lines += round(lines_bruto); // Arredonda valor obtido
-
-        matriz_color = {0, 0, 1};
-    }
+    // Define a cor baseado no estado do programa
+    Rgb matriz_color = alarme_on ? alarme_color : std_color;
 
     // Atualiza a matriz APENAS se houver informações novas a mostrar
-    if (lines != prev_lines || is_same_color(matriz_color, prev_matriz_color) || setup)
+    if (lines != prev_lines || !is_same_color(matriz_color, prev_matriz_color) || setup)
     {   
         // Desenha linhas proporcionais ao nível da água atual na matriz, simulando um tanque
         matriz_clear();
@@ -154,8 +153,18 @@ int main()
         adc_select_input(0);
         valor_adc = adc_read();
         porcentagem = (valor_adc * 100) / (float) ADC_RESOLUTION;
-        
+
         printf("Nível: %.2f%%\n", porcentagem);
+
+        // Aciona o alarme com base no estado atual do reservatório
+        if (checar_estado_nivel(porcentagem) != 0)
+        {
+            alarme_on = true;
+        }
+        else
+        {
+            alarme_on = false;
+        }
 
         if (porcentagem != anterior || flag_matriz)
         {
