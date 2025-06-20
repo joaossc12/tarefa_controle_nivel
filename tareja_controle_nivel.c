@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
+
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/adc.h"
@@ -12,6 +14,7 @@
 #define SENSOR_MIN 2330.0
 #define SENSOR_MAX 2635.0
 
+
 #include "lib/ws2812b.h"
 
 #define ADC_RESOLUTION 4095
@@ -19,6 +22,8 @@ const uint joystick_y_pin = 26;
 
 uint limite_max = 80;
 uint limite_min = 20;
+#define TOLERANCIA 5 // Diferença aceita para ultrapassar os limites
+
 //Trecho para modo BOOTSEL com botão B
 #include "pico/bootrom.h"
 #define botaoB 6
@@ -28,21 +33,53 @@ bool setup = true;
 volatile bool flag_switch = false;
 volatile bool flag_matriz = true;
 
+bool is_same_color(Rgb color1, Rgb color2)
+{
+    return color1.r == color2.r && color1.g == color2.g && color1.b == color2.b;
+}
+
 void matriz_show_lvl(float leitura_porc)
 {
     static uint8_t prev_lines = 0;
+    static Rgb prev_matriz_color = {0, 0, 1};
     
-    Rgb matriz_color = {0, 0, 1};
+    // Define o valor mínimo de linhas a serem desenhadas na matriz
+    uint8_t min_lines = limite_min > 0 ? 1 : 0;
+    uint8_t lines = min_lines;
 
-    uint8_t lines_bruto; // Valor bruto do mapeamento do nível para linhas da matriz
-    uint8_t lines; // Total de linhas a serem desenhadas na matriz
+    Rgb matriz_color;
 
-    // Mapeia o valor lido para linhas da matriz
-    lines_bruto = ((leitura_porc - limite_min) / (limite_max - limite_min)) * 5;
-    lines = ceil(lines_bruto); // Arredonda valor obtido
+    // Limitar valor lido pelos limites máximo e mínimo
+    if (leitura_porc > limite_max)
+    {   
+        lines = MATRIZ_ROWS; // Matriz deve exibir o maior valor possível
 
-    // Atualiza a matriz APENAS se houver informações diferentes ou se o sistema estiver em inicialização
-    if (lines != prev_lines || setup)
+        // Indicar risco de transbordamento se a diferença ultrapassar a tolerância
+        if (leitura_porc - limite_max >= TOLERANCIA)
+        {
+            matriz_color = {1, 0, 0};
+        }
+    }
+    else if (leitura_porc < limite_min)
+    {   
+        lines = min_lines; // Matriz deve exibir o menor valor possível
+
+        // Indicar que nível de água abaixo do ideal se a diferença ultrapassar a tolerância
+        if (limite_min - leitura_porc >= TOLERANCIA)
+        {
+            matriz_color = {1, 0, 0};
+        }
+    else
+    {
+        // Mapeia o valor lido para o total de linhas adicionais na matriz
+        uint8_t lines_bruto = ((leitura_porc - limite_min) / (limite_max - limite_min)) * (MATRIZ_ROWS - min_lines);
+        lines += round(lines_bruto); // Arredonda valor obtido
+
+        matriz_color = {0, 0, 1};
+    }
+
+    // Atualiza a matriz APENAS se houver informações novas a mostrar
+    if (lines != prev_lines || is_same_color(matriz_color, prev_matriz_color) || setup)
     {   
         // Desenha linhas proporcionais ao nível da água atual na matriz, simulando um tanque
         matriz_clear();
@@ -53,6 +90,7 @@ void matriz_show_lvl(float leitura_porc)
         matriz_send_data();
 
         prev_lines = lines;
+        prev_matriz_color = matriz_color;
     }
 }
 
