@@ -37,7 +37,7 @@
         .then(res => res.json())
         .then(data => {
           document.getElementById('nivel-valor').innerText = data.level;
-          const pct = Math.min(100, Math.max(0, Math.round(data.level / data.max * 100)));
+          const pct = Math.min(100, Math.max(0, Math.round(data.level)));
           document.querySelector('.preenchimento').style.width = pct + '%';
           const pumpEl = document.getElementById('pump-state');
           pumpEl.innerText = data.pump ? 'Ligada' : 'Desligada';
