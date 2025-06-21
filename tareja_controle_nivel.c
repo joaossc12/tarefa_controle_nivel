@@ -16,8 +16,8 @@
 #include "pico/cyw43_arch.h"
 #include "lwip/tcp.h"
 #include "lib/html.h"
-#define WIFI_SSID "AP306"
-#define WIFI_PASS "ElvisPresley"
+#define WIFI_SSID "NOME_WIFI"
+#define WIFI_PASS "SENHA_WIFI"
 
 // GPIO dos botões
 #define BOTAO_A 5
